@@ -2,16 +2,16 @@
 - name: Join SLES 11 to AD Domain
   hosts: sles_servers
   become: yes
-  vars_files:
-    - vault_password.yaml  # Reference the vault file
+#  vars_files:
+#    - vault_password.yaml  # Reference the vault file
 
   vars:
     ad_domain: "wikilab.asia"
     ad_domain_cap: "WIKILAB.ASIA"
     ad_realm: "WIKILAB"
     ad_workgroup: "WIKILAB"
-    ad_admin_user: "administrator"
-    ad_admin_pass: "{{ vault_domain_password }}"  # Store in Ansible Vault
+#    ad_admin_user: "administrator"
+#    ad_admin_pass: "{{ vault_domain_password }}"  # Store in Ansible Vault
     ad_dc_fqdn: "wikilabs_ad.wikilab.asia"
     ad_dns_ip: "192.168.1.36"
     samba_server_name: "{{ ansible_hostname }}"
