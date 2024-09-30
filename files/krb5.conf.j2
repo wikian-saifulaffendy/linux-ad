@@ -1,0 +1,26 @@
+[libdefaults]
+              default_realm = {{ ad_domain_cap }}
+              clockskew = 300
+
+[realms]
+    {{ ad_domain_cap }} = {
+        kdc = {{ ad_dc_fqdn }}
+        default_domain = {{ ad_domain }}
+        admin_server = {{ ad_dc_fqdn }}
+    }
+
+[logging]
+    kdc = FILE:/var/log/krb5/krb5kdc.log
+    admin_server = FILE:/var/log/krb5/kadmind.log
+    default = SYSLOG:NOTICE:DAEMON
+
+[domain_realm]
+    .{{ ad_domain }} = {{ ad_domain_cap }}
+
+[appdefaults]
+    pam = {
+        ticket_lifetime = 1d
+        renew_lifetime = 1d
+        forwardable = true
+        proxiable = false
+        minimum_uid = 1
