@@ -1,6 +1,6 @@
 ---
 - name: Join SLES 11 to AD Domain
-  hosts: PC2209_Inventory
+  hosts: all
   become: yes
 #  vars_files:
 #    - vault_password.yaml  # Reference the vault file
