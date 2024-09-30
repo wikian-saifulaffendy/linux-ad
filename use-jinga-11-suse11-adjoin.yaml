@@ -1,0 +1,146 @@
+---
+- name: Join SLES 11 to AD Domain
+  hosts: sles_servers
+  become: yes
+  vars_files:
+    - vault_password.yaml  # Reference the vault file
+
+  vars:
+    ad_domain: "wikilab.asia"
+    ad_domain_cap: "WIKILAB.ASIA"
+    ad_realm: "WIKILAB"
+    ad_workgroup: "WIKILAB"
+    ad_admin_user: "administrator"
+    ad_admin_pass: "{{ vault_domain_password }}"  # Store in Ansible Vault
+    ad_dc_fqdn: "wikilabs_ad.wikilab.asia"
+    ad_dns_ip: "192.168.1.36"
+    samba_server_name: "{{ ansible_hostname }}"
+    ansible_python_interpreter: "/usr/bin/python2"
+
+  tasks:
+
+    - name: Check the OS distribution supported for this play
+      fail:
+        msg: "This playbook can only be run on SUSE 11 SP4. You are running {{ ansible_distribution }} version {{ ansible_distribution_version }}."
+      when: 
+        - ansible_distribution != "SLES" or ansible_distribution_major_version != "11"
+    
+    - name: Check the AD status information AD
+      command: "net ads status -U {{ ad_admin_user }}@{{ ad_domain }}%{{ ad_admin_pass }}"
+      register: reg_ad_status
+      ignore_errors: yes
+
+    - name: Verify AD status return error code
+      fail:
+        msg: "The machine is already joined to the Active Directory domain. No action is required."
+      when:
+        - reg_ad_status.rc == 0
+
+    - name: Verify that wikilab.asia and wikilabs_ad resolve with ping
+      shell: "ping -c 4 {{ ad_domain }}"
+      register: ping_result
+      ignore_errors: yes
+
+    - name: Uncomment existing nameserver and search lines in /etc/resolv.conf
+      replace:
+        path: /etc/resolv.conf
+        regexp: "^(?!#)"  # Negative lookahead to exclude lines starting with #
+        replace: "# "      # Add # followed by a space for commenting
+      when: ping_result.rc != 0
+
+    - name: If ping fails, update /etc/resolv.conf with DNS and search
+      lineinfile:
+        path: /etc/resolv.conf
+        line: "{{ item }}"
+        state: present
+      with_items:
+        - "nameserver {{ ad_dns_ip }}"
+        - "search {{ ad_domain }}"
+      when: ping_result.rc != 0
+
+    - name: Install necessary packages for AD join
+      zypper:
+        name:
+          - samba-winbind
+          - krb5-client
+          - samba-winbind-32bit
+        state: present
+
+    - name: Backup and configure /etc/nsswitch.conf for winbind
+      blockinfile:
+        path: /etc/nsswitch.conf
+        block: |
+          passwd: compat winbind
+          group: compat winbind
+        backup: yes
+
+    - name: Enable winbind Authentication in PAM
+      command: pam-config -a --winbind
+      ignore_errors: yes
+
+    - name: Enable winbind Home Directory Management in PAM
+      command: pam-config -a --mkhomedir
+      ignore_errors: yes
+
+    - name: Backup and configure /etc/krb5.conf for Kerberos AD integration
+      template:
+        src: files/suse11/krb5.conf.j2
+        dest: /etc/krb5.conf
+        mode: '0644'
+        owner: root
+        group: root
+        backup: yes
+
+    - name: Backup and configure /etc/samba/smb.conf for AD integration
+      template:
+        src: files/suse11/smb.conf.j2
+        dest: /etc/samba/smb.conf
+        mode: '0644'
+        owner: root
+        group: root
+        backup: yes
+
+    - name: Check if AD info is populated
+      shell: "net ads info"
+      register: ad_info_result
+      ignore_errors: yes
+
+    - name: Join domain using net ads
+      command: "net ads join -U {{ ad_admin_user }}@{{ ad_domain }}%{{ ad_admin_pass }} --verbose"
+      ignore_errors: yes
+
+    - name: Restart Samba and Winbind services
+      service:
+        name: "{{ item }}"
+        state: restarted
+        enabled: true
+      with_items:
+        - smb
+        - winbind
+
+    - name: Stop nscd service
+      service:
+        name: nscd
+        state: stopped
+        enabled: false
+
+    - name: Post verification results
+      block:
+        - name: Verify AD users and groups listing
+          shell: "{{ item }}"
+          register: wbinfo_result
+          with_items:
+            - "wbinfo -u"
+            - "wbinfo -g"
+
+        - name: Print successful verification results
+          debug:
+            msg: "AD user and group listing verified successfully."
+          when: wbinfo_result.results[0].stdout and wbinfo_result.results[1].stdout
+
+      rescue:
+        - name: Print failure message and detailed error information
+          debug:
+            msg: "One or more failures occurred."
+            var: wbinfo_result.results
+...
